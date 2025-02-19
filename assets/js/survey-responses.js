@@ -137,8 +137,8 @@
             
             Object.entries(organized).forEach(([parentModule, data]) => {
                 html += `
-                    <div class="module-section">
-                        <h3 class="module-header">${this.escapeHtml(parentModule)}</h3>
+                    <div class="module-section et_pb_module et_pb_toggle et_pb_toggle_0 et_pb_toggle_item et_pb_toggle_close">
+                        <h3 class="module-header et_pb_toggle_title">${this.escapeHtml(parentModule)}</h3>
                         ${this.generateModuleContent(data.modules)}
                     </div>
                 `;
@@ -154,12 +154,16 @@
             Object.entries(modules).forEach(([moduleName, moduleData]) => {
                 if (moduleData.responses.length > 0) {
                     html += `
+                    <div class="et_pb_toggle_content clearfix">
+
                         <div class="module-subsection">
                             <h4 class="submodule-header">${this.escapeHtml(moduleName)}</h4>
                             <div class="responses-list">
                                 ${moduleData.responses.map(response => this.generateResponseItem(response)).join('')}
                             </div>
                         </div>
+
+                    </div>
                     `;
                 }
             });
