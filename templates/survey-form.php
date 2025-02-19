@@ -34,28 +34,30 @@ $homePageUrl = isset($atts['home_page']) ? esc_url($atts['home_page']) : 'https:
 
 
     <!-- Question Feedback -->
-    <div class="question-feedback" style="display: none;">
-    <?php if ($type === 'radio' || $type === 'checkbox'): ?>
-        <?php foreach ($options_array as $option): 
-            $feedback_text = isset($feedback_array[$option['text']]) ? $feedback_array[$option['text']] : '';
-            if (!empty($feedback_text)): ?>
-                <div class="feedback-text" data-option="<?php echo esc_attr($option['text']); ?>" style="display: none;">
-                    <div class="feedback-icon">ℹ️</div>
-                    <div class="feedback-content"><?php echo esc_html($feedback_text); ?></div>
-                </div>
-            <?php endif;
-        endforeach; ?>
-    <?php else: ?>
-        <?php 
-        $general_feedback = isset($feedback_array['general']) ? $feedback_array['general'] : '';
-        if (!empty($general_feedback)): ?>
-            <div class="feedback-text general-feedback">
-                <div class="feedback-icon">ℹ️</div>
-                <div class="feedback-content"><?php echo esc_html($general_feedback); ?></div>
+    <?php 
+foreach($questions as $question): 
+    $type = get_post_meta($question->ID, 'question_type', true);
+    $feedback = get_post_meta($question->ID, 'question_feedback', true);
+    $feedback_array = $feedback ? json_decode($feedback, true) : array();
+
+    if ($type === 'matching'):
+        $matching_items = get_post_meta($question->ID, 'matching_items', true);
+        $matching_items = $matching_items ? json_decode($matching_items, true) : array();
+        
+        if (!empty($matching_items) && !empty($feedback_array)): ?>
+            <div class="question-feedback" data-question-id="<?php echo esc_attr($question->ID); ?>">
+                <?php foreach ($matching_items as $index => $item): 
+                    if (isset($feedback_array[$item['item']])): ?>
+                        <div class="feedback-text" data-item-index="<?php echo esc_attr($index); ?>" style="display: none;">
+                            <div class="feedback-icon">ℹ️</div>
+                            <div class="feedback-content"><?php echo esc_html($feedback_array[$item['item']]); ?></div>
+                        </div>
+                    <?php endif;
+                endforeach; ?>
             </div>
-        <?php endif; ?>
-    <?php endif; ?>
-    </div>
+        <?php endif;
+    endif;
+endforeach; ?>
         
     <!-- Submit Section -->
     <?php if (!empty($questions)) : ?>
@@ -410,49 +412,93 @@ function initializeSurveyForm() {
             return false;
         });
 
-        function handleSuccessfulSubmission() {
-            $statusText.text('Response saved successfully!');
-            
-            // Update progress tracking
-            if (window.progressTracker) {
-                const currentUrl = window.location.pathname;
-                const progressData = {
-                    title: document.title,
-                    url: currentUrl,
-                    moduleNumber: window.progressTracker.extractModuleNumber(currentUrl),
-                    timestamp: new Date().toISOString()
-                };
-                
-                window.progressTracker.moduleProgress[currentUrl] = {
-                    ...progressData,
-                    visited: true
-                };
-                
-                window.progressTracker.saveProgress();
-                window.progressTracker.updateProgressUI();
-            }
-
-            // Show video if exists
-            const $video = $('.et_pb_video.vid-1-1');
-            if ($video.length) {
-                $video.show().css({
-                    'display': 'block',
+function showMatchingFeedback() {
+    // Show feedback for each matching item
+    $('.matching-item-row').each(function() {
+        const $row = $(this);
+        const $inputs = $row.find('input[type="radio"]');
+        const $feedbackContainer = $row.find('.feedback-container');
+        
+        // Show feedback if an option is selected and feedback exists
+        if ($inputs.is(':checked') && $feedbackContainer.length) {
+            $feedbackContainer
+                .css({
+                    'display': 'flex',
                     'opacity': '1',
-                    'visibility': 'visible'
-                });
-            }
-            
-            // Show success message
-            $form.find('.question-block, .survey-submit').fadeOut(300, function() {
-                $form.find('.survey-success-message').fadeIn(300, function() {
-                    if (nextPageUrl) {
-                        $('.survey-next-button').attr('href', nextPageUrl);
-                    } else {
-                        $('.survey-next-button').hide();
-                    }
-                });
-            });
+                    'max-height': '200px',
+                    'margin-top': '10px',
+                    'padding': '10px'
+                })
+                .addClass('show');
         }
+    });
+
+    // Scroll to first feedback
+    const $firstFeedback = $('.feedback-container.show').first();
+    if ($firstFeedback.length) {
+        $('html, body').animate({
+            scrollTop: $firstFeedback.offset().top - 100
+        }, 500);
+    }
+}
+
+function showSuccessMessage(data) {
+    // First, show feedback and disable form
+    showMatchingFeedback();
+    $form.find('input, select, textarea').prop('disabled', true);
+    
+    // Give users time to read feedback before showing success message
+    setTimeout(() => {
+        // Hide only the questions without feedback and submit button
+        const $nonFeedbackElements = $form.find('.question-block:not(:has(.feedback-container.show)), .survey-submit');
+        $nonFeedbackElements.fadeOut(300, function() {
+            // Show success message
+            $form.find('.survey-success-message').fadeIn(300);
+        });
+
+        // After a longer delay, fade out the feedback
+        setTimeout(() => {
+            $('.feedback-container.show').fadeOut(300);
+        }, 5000); // Give 5 seconds to read feedback after success message appears
+    }, 1000); // Wait 1 second before showing success message
+}
+
+function handleSuccessfulSubmission() {
+    $statusText.text('Response saved successfully!');
+
+    // Update progress tracking
+    if (window.progressTracker) {
+        const currentUrl = window.location.pathname;
+        const progressData = {
+            title: document.title,
+            url: currentUrl,
+            moduleNumber: window.progressTracker.extractModuleNumber(currentUrl),
+            timestamp: new Date().toISOString()
+        };
+        
+        window.progressTracker.moduleProgress[currentUrl] = {
+            ...progressData,
+            visited: true
+        };
+        
+        window.progressTracker.saveProgress();
+        window.progressTracker.updateProgressUI();
+    }
+
+    // Show video if exists
+    const $video = $('.et_pb_video.vid-1-1');
+    if ($video.length) {
+        $video.show().css({
+            'display': 'block',
+            'opacity': '1',
+            'visibility': 'visible'
+        });
+    }
+
+    // Show the success message (which now handles feedback display)
+    showSuccessMessage();
+}
+
 
         function handleSubmissionError(message) {
             if (message === 'Invalid or expired token') {

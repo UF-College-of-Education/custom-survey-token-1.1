@@ -580,6 +580,8 @@ function survey_enqueue_scripts() {
     $token_nonce = wp_create_nonce('survey_token_nonce');
     $progress_nonce = wp_create_nonce('progress_nonce');
     $rest_nonce = wp_create_nonce('wp_rest');
+    $responses_nonce = wp_create_nonce('get_survey_responses');
+
 
     // Create a unified configuration object that all scripts can access
     $survey_system_config = array(
@@ -676,10 +678,10 @@ function survey_enqueue_scripts() {
     ));
 
     // Localize survey responses with consistent nonce
-    wp_localize_script('survey-responses', 'surveyResponseConfig', array(
-        'ajaxurl' => $survey_system_config['ajaxurl'],
-        'nonce' => $survey_response_nonce,
-        'debug' => $survey_system_config['isDebug']
+    wp_localize_script('survey-responses', 'surveyConfig', array(
+        'ajaxurl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('get_survey_responses'),
+        'debug' => WP_DEBUG
     ));
 }
 add_action('wp_enqueue_scripts', 'survey_enqueue_scripts', 10);
@@ -842,16 +844,12 @@ function handle_survey_submission() {
     $response_table = $wpdb->prefix . 'survey_responses';
     $tokens_table = $wpdb->prefix . 'survey_tokens';
 
-
-
     if (!isset($_POST['survey_nonce']) || !wp_verify_nonce($_POST['survey_nonce'], 'submit_survey_nonce')) {
-        error_log('Nonce verification failed');
         wp_send_json_error(['message' => 'Invalid nonce']);
         return;
     }
 
     $token = sanitize_text_field($_POST['token']);
-    error_log('Token received: ' . $token);
     
     // Verify token
     $token_valid = $wpdb->get_row($wpdb->prepare(
@@ -860,12 +858,9 @@ function handle_survey_submission() {
     ));
 
     if (!$token_valid) {
-        error_log('Token validation failed');
         wp_send_json_error(['message' => 'Invalid or expired token']);
         return;
     }
-
-    error_log('Token validated successfully');
 
     try {
         $form_id = isset($_POST['form_id']) ? sanitize_text_field($_POST['form_id']) : 'default';
@@ -873,33 +868,65 @@ function handle_survey_submission() {
         
         foreach($_POST as $key => $value) {
             if(strpos($key, 'q_') === 0) {
-                $question_id = (int)substr($key, 2);
+                // Extract question ID and index (for matching questions) from the key
+                $key_parts = explode('_', $key);
+                $question_id = (int)$key_parts[1];
                 
-                if(is_array($value)) {
-                    $value = implode(', ', array_map('sanitize_text_field', $value));
-                } else {
-                    $value = sanitize_text_field($value);
-                }
-
-                $data = array(
-                    'question_id' => $question_id,
-                    'response' => $value,
-                    'token' => $token,
-                    'form_id' => $form_id,
-                    'created_at' => current_time('mysql')
-                );
-
-
-                $result = $wpdb->insert($response_table, $data);
+                // Get question type
+                $question_type = get_post_meta($question_id, 'question_type', true);
                 
-                if($result !== false) {
-                    $inserted++;
+                if($question_type === 'matching') {
+                    // For matching questions, handle each match separately
+                    if(isset($key_parts[2])) { // This is a matching item response
+                        $match_index = $key_parts[2];
+                        $matching_items = get_post_meta($question_id, 'matching_items', true);
+                        $matching_items = json_decode($matching_items, true);
+                        
+                        if(isset($matching_items[$match_index])) {
+                            $item = $matching_items[$match_index];
+                            $response_text = sprintf(
+                                '%s => %s',
+                                $item['item'],
+                                sanitize_text_field($value)
+                            );
+                            
+                            $data = array(
+                                'question_id' => $question_id,
+                                'response' => $response_text,
+                                'token' => $token,
+                                'form_id' => $form_id,
+                                'created_at' => current_time('mysql')
+                            );
+                            
+                            $result = $wpdb->insert($response_table, $data);
+                            if($result !== false) {
+                                $inserted++;
+                            }
+                        }
+                    }
                 } else {
-                    error_log('Insert failed. SQL Error: ' . $wpdb->last_error);
+                    // Handle other question types as before
+                    if(is_array($value)) {
+                        $value = implode(', ', array_map('sanitize_text_field', $value));
+                    } else {
+                        $value = sanitize_text_field($value);
+                    }
+
+                    $data = array(
+                        'question_id' => $question_id,
+                        'response' => $value,
+                        'token' => $token,
+                        'form_id' => $form_id,
+                        'created_at' => current_time('mysql')
+                    );
+
+                    $result = $wpdb->insert($response_table, $data);
+                    if($result !== false) {
+                        $inserted++;
+                    }
                 }
             }
         }
-
 
         if($inserted > 0) {
             wp_send_json_success(['message' => 'Thank you for your response!']);
@@ -925,7 +952,6 @@ function handle_survey_export() {
         !wp_verify_nonce($_POST['_wpnonce'], 'export_responses_nonce')) {
         wp_die('Invalid request');
     }
-
     global $wpdb;
     $response_table = $wpdb->prefix . 'survey_responses';
     $tokens_table = $wpdb->prefix . 'survey_tokens';
@@ -995,57 +1021,24 @@ function handle_survey_export() {
     exit;
 }
 
-add_shortcode('view_survey_responses', 'render_survey_responses_view');
-function render_survey_responses_view($atts) {
-    error_log('Survey responses shortcode is being executed');
-    
-    // Enqueue necessary scripts
-    wp_enqueue_script(
-        'survey-responses', 
-        SURVEY_PLUGIN_URL . '/assets/js/survey-responses.js',
-        array('jquery'), 
-        SURVEY_PLUGIN_VERSION,
-        true
-    );
 
-    // Add necessary configuration
-    wp_localize_script('survey-responses', 'surveyConfig', array(
-        'ajaxurl' => admin_url('admin-ajax.php'),
-        'nonce' => wp_create_nonce('submit_survey_nonce'),
-        'debug' => WP_DEBUG
-    ));
-
-    // Return the responses card structure
-    ob_start();
-    ?>
-    <div class="progress-card">
-        <div class="card-header">
-            <h3>My Quiz Responses</h3>
-        </div>
-        <div id="responses-section">
-            <div id="responses-loading" class="loading-indicator">Loading responses...</div>
-            <div id="responses-container"></div>
-            <div id="responses-error" style="display: none;"></div>
-        </div>
-    </div>
-    <?php
-    return ob_get_clean();
-}
-
-add_shortcode('view_survey_responses', 'render_survey_responses_view');
 
 // responses grouped by modules
 // Add this to your custom-survey.php file
 
 function handle_get_survey_responses() {
+    error_log('Survey responses handler initiated');
+    
     // Verify nonce
     if (!check_ajax_referer('get_survey_responses', 'nonce', false)) {
+        error_log('Survey responses: Nonce verification failed');
         wp_send_json_error(array('message' => 'Security check failed'));
         exit;
     }
 
     $token = isset($_POST['token']) ? sanitize_text_field($_POST['token']) : '';
     if (empty($token)) {
+        error_log('Survey responses: Empty token');
         wp_send_json_error(array('message' => 'Token is required'));
         exit;
     }
@@ -1053,7 +1046,7 @@ function handle_get_survey_responses() {
     global $wpdb;
     $response_table = $wpdb->prefix . 'survey_responses';
     
-    // Get responses with question text and taxonomy information
+    // Enhanced query with error logging
     $query = $wpdb->prepare("
         SELECT 
             r.response,
@@ -1075,6 +1068,8 @@ function handle_get_survey_responses() {
         ORDER BY r.created_at DESC
     ", $token);
 
+    error_log('Survey responses query: ' . $query);
+
     $results = $wpdb->get_results($query);
 
     if ($wpdb->last_error) {
@@ -1084,23 +1079,13 @@ function handle_get_survey_responses() {
     }
 
     if (empty($results)) {
+        error_log('No responses found for token: ' . $token);
         wp_send_json_success(array()); // Return empty array instead of error
         exit;
     }
 
-    // Format the responses
-    $formatted_responses = array_map(function($row) {
-        return array(
-            'question' => $row->question,
-            'response' => $row->response,
-            'created_at' => $row->created_at,
-            'form_id' => $row->form_id,
-            'module' => $row->module_name ? explode(',', $row->module_name)[0] : 'Uncategorized',
-            'parent_module' => $row->parent_module_name ? explode(',', $row->parent_module_name)[0] : 'General'
-        );
-    }, $results);
-
-    wp_send_json_success($formatted_responses);
+    error_log('Found ' . count($results) . ' responses');
+    wp_send_json_success($results);
 }
 
 // Register the AJAX handlers

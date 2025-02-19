@@ -95,6 +95,46 @@ $correct_answers_array = $correct_answers ? json_decode($correct_answers, true) 
                     </div>
                 <?php break;
 
+case 'matching': 
+    $matching_items = get_post_meta($question->ID, 'matching_items', true);
+    $matching_items = $matching_items ? json_decode($matching_items, true) : array();
+    $feedback = get_post_meta($question->ID, 'question_feedback', true);
+    $feedback_array = $feedback ? json_decode($feedback, true) : array();
+    
+    if (!empty($matching_items)): ?>
+        <div class="matching-items-grid">
+            <?php foreach ($matching_items as $index => $item): ?>
+                <div class="matching-item-row">
+                    <div class="matching-item-text">
+                        <?php echo esc_html($item['item']); ?>
+                    </div>
+                    <div class="matching-item-options">
+                        <?php foreach ($item['options'] as $option): ?>
+                            <label class="matching-option-label">
+                                <input type="radio" 
+                                    name="q_<?php echo esc_attr($question->ID . '_' . $index); ?>" 
+                                    value="<?php echo esc_attr($option); ?>"
+                                    <?php echo $required ? 'required' : ''; ?>>
+                                <span class="matching-option-text"><?php echo esc_html($option); ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                    <?php 
+                    // Get feedback for this item if it exists
+                    $item_feedback = isset($feedback_array[$item['item']]) ? $feedback_array[$item['item']] : '';
+                    if (!empty($item_feedback)): ?>
+                        <div class="feedback-container" style="opacity: 0; max-height: 0; overflow: hidden;">
+                            <div class="feedback-icon">ℹ️</div>
+                            <div class="feedback-text"><?php echo esc_html($item_feedback); ?></div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; 
+    break;
+                
+
                 case 'checkbox': ?>
                     <div class="checkbox-options">
                         <?php foreach ($options_array as $option): ?>
@@ -159,3 +199,89 @@ $correct_answers_array = $correct_answers ? json_decode($correct_answers, true) 
         <?php endif; ?>
     </div>
 </div>
+
+<style>
+.matching-items-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.matching-item-row {
+    display: flex;
+    flex-direction: column;
+    background: #f8f8f8;
+    border-radius: 4px;
+    padding: 15px;
+}
+
+.matching-item-text {
+    font-weight: 500;
+    margin-bottom: 10px;
+}
+
+.matching-item-options {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 10px;
+}
+
+.matching-option-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+}
+
+.feedback-container {
+    display: none;
+    margin-top: 10px;
+    padding: 10px;
+    background: #e9e9e9;
+    border-radius: 4px;
+}
+
+.feedback-container.show {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+}
+
+.feedback-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.feedback-text {
+    flex: 1;
+    font-size: 14px;
+    color: #555;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Remove display:none from feedback container */
+.question-feedback {
+    margin-top: 10px;
+}
+
+/* Animation for feedback display */
+.feedback-container {
+    transition: all 0.3s ease-in-out;
+    max-height: 0;
+    opacity: 0;
+    overflow: hidden;
+}
+
+.feedback-container.show {
+    max-height: 200px;
+    opacity: 1;
+    padding: 10px;
+    margin-top: 10px;
+}
+</style>

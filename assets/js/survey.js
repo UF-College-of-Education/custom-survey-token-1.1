@@ -56,6 +56,9 @@ jQuery(document).ready(function($) {
 
     function handleSubmissionSuccess(response) {
         if (response.success) {
+            // Show feedback for matching questions first
+            showQuestionFeedback();
+
             // Update progress tracking
             if (window.progressTracker) {
                 window.progressTracker.saveProgress();
@@ -72,10 +75,37 @@ jQuery(document).ready(function($) {
                 });
             }
             
-            // Show success message
-            showSuccessMessage(response.data);
+            // Delay the success message to allow feedback to be seen
+            setTimeout(() => {
+                showSuccessMessage(response.data);
+            }, 2000);
         } else {
             handleSubmissionError(response);
+        }
+    }
+
+    function showQuestionFeedback() {
+        // Handle matching questions feedback
+        $('.matching-item-row').each(function() {
+            const $row = $(this);
+            const $options = $row.find('input[type="radio"]');
+            const $feedbackContainer = $row.find('.feedback-container');
+            
+            // Show feedback if an option is selected
+            if ($options.is(':checked') && $feedbackContainer.length) {
+                $feedbackContainer.addClass('show');
+            }
+        });
+
+        // Disable all inputs after showing feedback
+        $form.find('input, select, textarea').prop('disabled', true);
+
+        // Scroll to first feedback if any exists
+        const $firstFeedback = $('.feedback-container.show').first();
+        if ($firstFeedback.length) {
+            $('html, body').animate({
+                scrollTop: $firstFeedback.offset().top - 100
+            }, 500);
         }
     }
 
@@ -88,9 +118,16 @@ jQuery(document).ready(function($) {
     }
 
     function showSuccessMessage(data) {
-        $form.find('.question-block, .survey-submit').fadeOut(300, function() {
+        // Don't immediately hide everything - let users see the feedback
+        const $nonFeedbackElements = $form.find('.question-block:not(:has(.feedback-container.show)), .survey-submit');
+        $nonFeedbackElements.fadeOut(300, function() {
             $form.find('.survey-success-message').fadeIn(300);
         });
+
+        // Fade out feedback containers after a delay
+        setTimeout(() => {
+            $('.feedback-container.show').fadeOut(300);
+        }, 1500);
     }
 
     // Add loading state to form initially
@@ -98,4 +135,12 @@ jQuery(document).ready(function($) {
     
     // Start initialization
     initializeSurveyForm();
+
+    // Optional: Add reset handler if needed
+    $form.on('reset', function() {
+        $('.feedback-container').removeClass('show');
+        $form.find('input, select, textarea').prop('disabled', false);
+        $form.find('.submit-button').prop('disabled', false).css('opacity', '1');
+        $('.status-text').text('');
+    });
 });
